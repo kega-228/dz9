@@ -23,6 +23,9 @@ let deliveryTimeError = document.getElementById("deliveryTimeError");
 let tagsInput = document.getElementById("tags");
 let tagsError = document.getElementById("tagsError");
 let addOrderButton = document.getElementById("addOrder");
+let ordersList = document.getElementById("orders");
+let showOnlyOverdueCheckbox = document.getElementById("showOnlyOverdue");
+let ordersCounter = document.getElementById("ordersCounter");
 
 let tags;
 function validateOrder() {
@@ -114,7 +117,7 @@ class Order {
     }
     nextStatus() {
         if(this.status === status.DELIVERED) return;
-        this.status = status.IN_TRANSIT;
+        if(this.status === status.NEW) this.status = status.IN_TRANSIT;
         if(this.status === status.IN_TRANSIT) this.status = status.DELIVERED;
     }
     // 4. Власна серіалізація і десеріалізація
@@ -156,7 +159,31 @@ class Order {
 //     Якщо ключа ще немає, сторінка показує порожній список без помилок.
 //     Якщо дані зіпсовані (наприклад, вручну змінені в DevTools), сторінка показує повідомлення «Збережені дані пошкоджено» і стартує з порожнім списком, а не падає.
 
-let orders = localStorage.getItem('orders') ? JSON.parse(localStorage.getItem('orders')) : [];
+let orders = [];
+
+function loadOrders() {
+    const rawData = localStorage.getItem('orders');
+
+    if (!rawData) {
+        return;
+    }
+
+    try {
+        const parsed = JSON.parse(rawData);
+
+        if (!Array.isArray(parsed)) {
+            throw new Error('Дані в localStorage не є масивом');
+        }
+
+        orders = parsed.map(item => Order.fromJSON(item));
+
+    } catch (error) {
+        console.error('Помилка завантаження даних:', error);
+
+        tagsError.InnerText = 'Збережені дані пошкоджено'
+        orders = [];
+    }
+}
 
 function saveOrders() {
     localStorage.setItem('orders', JSON.stringify(orders));
@@ -167,5 +194,52 @@ addOrderButton.addEventListener("click", () => {
         let order = new Order(orderNumberInput.value, addressInput.value, weightInput.value, new Date(deliveryTimeInput.value), tags, status.NEW, new Date());
         orders.push(order);
         saveOrders();
+        renderOrders();
     }
 })
+
+function renderOrders() {
+    ordersList.innerHTML = '';
+    // 6. Відображення списку
+    //
+    // Кожне замовлення відображається карткою або рядком таблиці: номер, адреса, вага, час доставки в зручному форматі, теги, статус.
+    //     Прострочені замовлення виділяються кольором. Біля кожного замовлення є кнопки «Наступний статус» і «Видалити».
+    const total = orders.length;
+    const overdue = orders.filter(order => order.isOverdue()).length;
+    const delivered = orders.filter(order => order.status === status.DELIVERED).length;
+    ordersCounter.textContent = `усього: ${total} / затримка: ${overdue} / доставлено: ${delivered}`;
+    orders.forEach(order => {
+        if (showOnlyOverdueCheckbox.checked && !order.isOverdue())
+            return;
+        let li = document.createElement('li');
+        if(order.isOverdue())
+            li.style.color = 'red';
+        let del = document.createElement('button');
+        let changeStatus = document.createElement('button');
+        del.textContent = 'Delete';
+        changeStatus.textContent = 'Next status';
+        del.style.marginLeft = '10px';
+        changeStatus.style.marginLeft = '10px';
+        del.addEventListener('click', () => {
+            orders = orders.filter(o => o.number !== order.number);
+            saveOrders();
+            renderOrders();
+        });
+        changeStatus.addEventListener('click', () => {
+            order.nextStatus();
+            saveOrders();
+            renderOrders();
+        });
+        li.textContent = `${order.number} - ${order.address} - ${order.weight} - ${order.deliveryTime} - ${order.tags && order.tags.size > 0 ? Array.from(order.tags).join(', ') : ' нема '} - ${order.status}`;
+        li.appendChild(del);
+        li.appendChild(changeStatus);
+        ordersList.appendChild(li);
+    });
+}
+
+showOnlyOverdueCheckbox.addEventListener('change', () => {
+    renderOrders();
+});
+
+loadOrders();
+renderOrders();
